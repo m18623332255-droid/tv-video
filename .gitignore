@@ -1,0 +1,12 @@
+build/
+.gradle/
+local.properties
+*.apk
+*.keystore
+*.jks
+.idea/
+*.iml
+captures/
+.cxx/
+.externalNativeBuild/
+sources/vod.json
