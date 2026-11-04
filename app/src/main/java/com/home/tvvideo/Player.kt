@@ -70,7 +70,7 @@ fun PlayerScreen(req: PlayReq) {
         line = l; ep = e; err = ""; buffering = true
         player.setMediaItem(PlayerKit.item(list[e].url), start); player.prepare(); player.play(); osd++
     }
-    LaunchedEffect(Unit) { load(line, ep, req.start); rootFr.requestFocus() }
+    LaunchedEffect(Unit) { load(line, ep, req.start); rootFr.safeFocus() }
     DisposableEffect(Unit) {
         val l = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) { err = "播放失败（${error.errorCodeName}）" + if (req.lines.size > 1) "，按 下键 切换线路" else "" ; buffering = false; osdVisible = true }
@@ -84,7 +84,7 @@ fun PlayerScreen(req: PlayReq) {
     }
     LaunchedEffect(Unit) { var n = 0; while (true) { delay(500); pos = player.currentPosition; dur = player.duration.coerceAtLeast(0); if (++n % 20 == 0 && player.isPlaying) save() } }
     LaunchedEffect(osd) { osdVisible = true; delay(4000); if (playing && !panel) osdVisible = false }
-    LaunchedEffect(panel) { if (panel) { delay(80); runCatching { panelFr.requestFocus() } } else runCatching { rootFr.requestFocus() } }
+    LaunchedEffect(panel) { if (panel) { delay(80); panelFr.safeFocus() } else rootFr.safeFocus() }
 
     fun seek(d: Int) { seekAcc = if (seekAcc * d > 0) seekAcc + d else d
         val step = 10_000L * minOf(6, Math.abs(seekAcc)); val t = (player.currentPosition + d * step).coerceIn(0, if (dur > 0) dur else Long.MAX_VALUE)
@@ -108,7 +108,6 @@ fun PlayerScreen(req: PlayReq) {
         if (buffering && err.isBlank()) Box(Modifier.align(Alignment.Center).glass(24).padding(horizontal = 40.p, vertical = 20.p)) { T("缓冲中…", 26) }
         if (err.isNotBlank()) Box(Modifier.align(Alignment.Center).glass(24).padding(horizontal = 40.p, vertical = 20.p)) { T(err, 26) }
         if (osdVisible || panel) {
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color(0x99000000), .25f to Color.Transparent, .6f to Color.Transparent, 1f to Color(0xCC000000))))
             Column(Modifier.align(Alignment.TopStart).padding(start = 96.p, top = 60.p)) {
                 T(req.title, 48, FontWeight.Bold)
                 eps.getOrNull(ep)?.let { T(it.name + " · " + (req.lines.getOrNull(line)?.name ?: ""), 24, alpha = .7f) }

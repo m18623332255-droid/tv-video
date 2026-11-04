@@ -84,7 +84,6 @@ object Parsers {
         val map = LinkedHashMap<String, Channel>()
         for (c in raw) {
             if (c.name.isBlank() || Regex("^\\d{4}-\\d{2}-\\d{2}").containsMatchIn(c.name)) continue
-            if (isAdult(c.name)) continue
             val k = c.key
             val ex = map[k]
             if (ex == null) map[k] = c.copy(group = guessGroup(c.name, c.group), urls = c.urls.toMutableList())
@@ -96,9 +95,8 @@ object Parsers {
     private fun cctvNum(n: String): Int = Regex("^CCTV-?(\\d+)", RegexOption.IGNORE_CASE).find(n)?.groupValues?.get(1)?.toIntOrNull() ?: 999
 
     // ---------------- 苹果 CMS ----------------
-    val TOP = listOf("推荐", "电视剧", "电影", "动漫", "综艺", "纪录片", "少儿")
+    val TOP = listOf("推荐", "电视剧", "电影", "动漫", "综艺", "纪录片", "少儿", "其他")
     fun topOf(name: String): String? {
-        if (isAdult(name)) return null
         return when {
             name.contains("少儿") || name.contains("儿童") || name.contains("亲子") || name == "动画片" -> "少儿"
             name.contains("动漫") || name.contains("动画") || name.contains("番") -> "动漫"
@@ -107,7 +105,7 @@ object Parsers {
             name.contains("电影") && !name.contains("解说") -> "电影"
             name.endsWith("片") && !name.contains("预告") -> "电影"
             name.contains("剧") && !name.contains("短剧") && !name.contains("漫剧") -> "电视剧"
-            else -> null
+            else -> "其他"
         }
     }
 
@@ -116,14 +114,13 @@ object Parsers {
         val classes = mutableListOf<CmsClass>()
         o.optJSONArray("class")?.let { a ->
             for (i in 0 until a.length()) { val c = a.getJSONObject(i); val n = c.optString("type_name")
-                if (!isAdult(n)) classes += CmsClass(c.optString("type_id"), c.optString("type_pid", "0"), n) }
+                classes += CmsClass(c.optString("type_id"), c.optString("type_pid", "0"), n) }
         }
         val list = mutableListOf<VodItem>()
         val arr = o.optJSONArray("list") ?: JSONArray()
         for (i in 0 until arr.length()) {
             val v = arr.getJSONObject(i)
             val tn = v.optString("type_name")
-            if (isAdult(tn) || isAdult(v.optString("vod_class")) ) continue
             list += VodItem(
                 id = v.optString("vod_id"), name = v.optString("vod_name"), pic = v.optString("vod_pic"),
                 remarks = v.optString("vod_remarks"), typeName = tn, year = v.optString("vod_year"), area = v.optString("vod_area"),

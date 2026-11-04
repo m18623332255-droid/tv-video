@@ -1,3 +1,4 @@
+@file:kotlin.OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 package com.home.tvvideo
 
 import androidx.annotation.OptIn
@@ -8,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -58,9 +60,9 @@ fun LiveTab() {
         }
         val list = channelsOf(all, g, favs)
         if (list.isEmpty()) Empty(if (g == "收藏") "还没有收藏频道，在全屏直播中按 菜单键 收藏" else "加载中…")
-        TvLazyVerticalGrid(TvGridCells.Fixed(6), Modifier.padding(top = 30.p), horizontalArrangement = Arrangement.spacedBy(30.p), verticalArrangement = Arrangement.spacedBy(30.p),
+        TvLazyVerticalGrid(TvGridCells.Fixed(6), Modifier.padding(top = 30.p).focusRestorer(), horizontalArrangement = Arrangement.spacedBy(30.p), verticalArrangement = Arrangement.spacedBy(30.p),
             contentPadding = PaddingValues(20.p)) {
-            items(list) { c -> FocusCard(w = 236, h = 130, brush = grad(c.name), onClick = { Nav.go(Scr.Live(c.key)) }) {
+            items(list, key = { it.key }) { c -> FocusCard(w = 236, h = 130, brush = grad(c.name), onClick = { Nav.go(Scr.Live(c.key)) }) {
                 Badge("${c.urls.size} 线路"); CardTitle(c.name, c.group) } }
         }
     }
@@ -98,7 +100,7 @@ fun LiveScreen(startKey: String?) {
         val k = startKey ?: Store.get("lastLive")
         val c = all.firstOrNull { it.key == k } ?: all.firstOrNull()
         if (c != null) { group = c.group; play(c, 0) }
-        rootFr.requestFocus()
+        rootFr.safeFocus()
     }
     DisposableEffect(Unit) {
         val l = object : Player.Listener {
@@ -109,10 +111,10 @@ fun LiveScreen(startKey: String?) {
     }
     // 卡顿检测：缓冲超过 12 秒自动切线路
     LaunchedEffect(cur, line) { var stall = 0; while (true) { delay(1000); if (player.playbackState == Player.STATE_BUFFERING || player.playbackState == Player.STATE_IDLE) stall++ else stall = 0; if (stall >= 12) { stall = 0; nextLine(true) } } }
-    LaunchedEffect(cur) { epg = emptyList(); cur?.let { epg = runCatching { Epg.get(it.tvgName.ifBlank { it.name }) }.getOrDefault(emptyList()) } }
+    LaunchedEffect(cur) { epg = emptyList(); delay(800); cur?.let { epg = runCatching { Epg.get(it.tvgName.ifBlank { it.name }) }.getOrDefault(emptyList()) } }
     var infoVisible by remember { mutableStateOf(true) }
     LaunchedEffect(info) { infoVisible = true; delay(5000); infoVisible = false }
-    LaunchedEffect(showList) { if (showList) { delay(80); runCatching { listFr.requestFocus() } } else runCatching { rootFr.requestFocus() } }
+    LaunchedEffect(showList) { if (showList) { delay(80); listFr.safeFocus() } else rootFr.safeFocus() }
 
     Box(Modifier.fillMaxSize().background(Color.Black).focusRequester(rootFr).onKey { k ->
         if (showList) return@onKey when (k) { Key.Back -> { showList = false; true }; else -> false }
@@ -140,7 +142,7 @@ fun LiveScreen(startKey: String?) {
                 LaunchedEffect(group) { st.scrollToItem(curIdx) }
                 if (list.isEmpty()) T(if (group == "收藏") "暂无收藏，播放时按菜单键收藏" else "无频道", 22, alpha = .6f)
                 TvLazyColumn(state = st, verticalArrangement = Arrangement.spacedBy(4.p), contentPadding = PaddingValues(vertical = 10.p, horizontal = 12.p)) {
-                    itemsIndexed(list) { i, ch ->
+                    itemsIndexed(list, key = { _, ch -> ch.key }) { i, ch ->
                         ChannelRow(ch, i, ch.key == c?.key, "live:${ch.key}" in favs, if (i == curIdx) listFr else null,
                             onFav = { Store.toggleFav("live:${ch.key}") }) { play(ch, 0); showList = false }
                     }

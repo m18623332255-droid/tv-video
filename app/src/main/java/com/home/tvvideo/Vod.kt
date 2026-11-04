@@ -1,3 +1,4 @@
+@file:kotlin.OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 package com.home.tvvideo
 
 import androidx.compose.foundation.background
@@ -11,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -51,13 +53,12 @@ fun filtered(l: List<VodItem>) = l.filter { (VodState.area == "全部" || Parser
 
 suspend fun vodLoadMore(reset: Boolean = false) {
     val s = VodState
-    val src = Cms.cur ?: run { s.loading = false; return }
     if (s.loading) return
-    if (reset || s.srcApi != src.api) { s.items.clear(); s.page = 0; s.pageCount = 1; s.srcApi = src.api; s.error = "" }
+    if (reset || s.srcApi != Cms.cur.api) { s.items.clear(); s.page = 0; s.pageCount = 1; s.srcApi = Cms.cur.api; s.error = "" }
     if (s.page >= s.pageCount) return
     s.loading = true
     try {
-        if (s.classes.isEmpty()) s.classes = Cms.classes(src)
+        if (s.classes.isEmpty()) s.classes = Cms.classes()
         val topName = Parsers.TOP[s.top]
         val cls = Parsers.classesFor(topName, s.classes)
         // 父分类在多数采集站下不含子类数据：“全部”时并行合并前 4 个子分类
@@ -66,7 +67,7 @@ suspend fun vodLoadMore(reset: Boolean = false) {
         var tries = 0
         do {
             val pg = s.page + 1
-            val rs = kotlinx.coroutines.coroutineScope { ids.map { t -> async { runCatching { Cms.list(t, pg, src) }.getOrNull() } }.awaitAll() }.filterNotNull()
+            val rs = kotlinx.coroutines.coroutineScope { ids.map { t -> async { runCatching { Cms.list(t, pg) }.getOrNull() } }.awaitAll() }.filterNotNull()
             if (rs.isEmpty()) error("接口无响应")
             s.page = pg; s.pageCount = rs.maxOf { it.pageCount }
             val merged = (0 until rs.maxOf { it.list.size }).flatMap { i -> rs.mapNotNull { it.list.getOrNull(i) } }
@@ -78,30 +79,15 @@ suspend fun vodLoadMore(reset: Boolean = false) {
 }
 
 @Composable
-fun VodEmptyGuide() {
-    Column(Modifier.fillMaxSize().padding(start = 96.p, end = 96.p, top = 150.p)) {
-        T("点播", 64, FontWeight.Bold)
-        Column(Modifier.padding(top = 40.p).width(1100.p).glass(28).padding(40.p)) {
-            T("还没有点播源", 36, FontWeight.Bold)
-            T("本应用不内置任何影视接口。请在「设置 → 点播源」中添加你自己的苹果 CMS（MacCMS）JSON 接口，地址通常以 api.php/provide/vod/ 结尾。添加后即可按分类浏览、搜索和播放。请只添加你有权使用的接口。", 24, alpha = .8f, lines = 6, modifier = Modifier.padding(vertical = 20.p))
-            Btn("前往设置") { Nav.tab = 5 }
-        }
-    }
-}
-
-@Composable
 fun VodTab() {
-    val src = Cms.cur
-    if (src == null) { VodEmptyGuide(); return }
     val scope = rememberCoroutineScope()
     val s = VodState
-    LaunchedEffect(s.version, src.api) { if (s.items.isEmpty() || s.srcApi != src.api) vodLoadMore(true) }
+    LaunchedEffect(s.version, Cms.cur.api) { if (s.items.isEmpty() || s.srcApi != Cms.cur.api) vodLoadMore(true) }
     fun reload() { s.version++; scope.launch { vodLoadMore(true) } }
-    Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color(0xFF3A1F4A), Color.Transparent), center = androidx.compose.ui.geometry.Offset(1500f, 0f), radius = 1400f)))
     Column(Modifier.fillMaxSize().padding(start = 96.p, end = 96.p, top = 130.p)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Parsers.TOP.forEachIndexed { i, t -> Pill(t, s.top == i, size = 28, padH = 24, padV = 10, radius = 24, onClick = { if (s.top != i) { s.top = i; s.sub = null; reload() } }) }
-            Spacer(Modifier.weight(1f)); T("源：${src.name}（设置中切换）", 20, alpha = .55f)
+            Spacer(Modifier.weight(1f)); T("源：${Cms.cur.name}（设置中切换）", 20, alpha = .55f)
         }
         val subs = Parsers.classesFor(Parsers.TOP[s.top], s.classes).filter { it.pid != "0" || Parsers.classesFor(Parsers.TOP[s.top], s.classes).size == 1 }
         Column(Modifier.padding(top = 20.p).fillMaxWidth().glass(22).padding(horizontal = 22.p, vertical = 10.p)) {
@@ -111,7 +97,7 @@ fun VodTab() {
         }
         val list = filtered(s.items)
         if (s.error.isNotBlank()) Empty(s.error) else if (list.isEmpty() && !s.loading) Empty("暂无内容")
-        PosterGrid(list, Modifier.padding(top = 10.p), onNearEnd = { scope.launch { vodLoadMore() } }) { Nav.go(Scr.Detail("cms", it.id, src.api)) }
+        PosterGrid(list, Modifier.padding(top = 10.p), onNearEnd = { scope.launch { vodLoadMore() } }) { Nav.go(Scr.Detail("cms", it.id, Cms.cur.api)) }
     }
 }
 
@@ -120,18 +106,18 @@ fun FilterRow(label: String, opts: List<String>, sel: String, onSel: (String) ->
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.p)) {
         T(label, 21, FontWeight.SemiBold, .55f, modifier = Modifier.width(64.p))
         TvLazyRow(horizontalArrangement = Arrangement.spacedBy(4.p), contentPadding = PaddingValues(4.p)) {
-            rowItemsIndexed(opts) { _, o -> Pill(o, o == sel, size = 21, padH = 16, padV = 6, radius = 16) { onSel(o) } }
+            rowItemsIndexed(opts, key = { _, o -> o }) { _, o -> Pill(o, o == sel, size = 21, padH = 16, padV = 6, radius = 16) { onSel(o) } }
         }
     }
 }
 
 @Composable
 fun PosterGrid(list: List<VodItem>, modifier: Modifier = Modifier, onNearEnd: () -> Unit = {}, onClick: (VodItem) -> Unit) {
-    TvLazyVerticalGrid(TvGridCells.Fixed(6), modifier, horizontalArrangement = Arrangement.spacedBy(36.p), verticalArrangement = Arrangement.spacedBy(36.p),
+    TvLazyVerticalGrid(TvGridCells.Fixed(6), modifier.focusRestorer(), horizontalArrangement = Arrangement.spacedBy(36.p), verticalArrangement = Arrangement.spacedBy(36.p),
         contentPadding = PaddingValues(vertical = 30.p, horizontal = 16.p)) {
         itemsIndexed(list, key = { _, v -> v.id }) { i, v ->
             FocusCard(w = 236, h = 300, brush = grad(v.id), onFocus = { if (i >= list.size - 12) onNearEnd() }, onClick = { onClick(v) }) {
-                Poster(v.pic, v.id); CardTitle(v.name); Badge(v.remarks.take(10)); if (v.score.isNotBlank()) Badge("★ ${v.score}", true, Color(0xFFFFD60A))
+                Poster(v.pic, v.id, wPx = 236, hPx = 300); CardTitle(v.name); Badge(v.remarks.take(10)); if (v.score.isNotBlank()) Badge("★ ${v.score}", true, Color(0xFFFFD60A))
             }
         }
     }
@@ -144,32 +130,21 @@ object SearchState { var q by mutableStateOf(""); var res = mutableStateListOf<V
 fun SearchTab() {
     val scope = rememberCoroutineScope()
     val s = SearchState
-    val src = Cms.cur
     fun go() { if (s.q.isBlank()) return; s.msg = "搜索中…"; s.res.clear(); s.jf.clear()
-        scope.launch {
-            var fail: String? = null
-            if (src != null) runCatching { s.res.addAll(Cms.search(s.q.trim(), src = src).list) }.onFailure { fail = it.message }
+        scope.launch { runCatching { s.res.addAll(Cms.search(s.q.trim()).list) }.onFailure { s.msg = "搜索失败：${it.message}" }
             if (Jellyfin.configured) runCatching { s.jf.addAll(Jellyfin.search(s.q.trim())) }
-            s.msg = when {
-                src == null && !Jellyfin.configured -> "还没有点播源。请先在「设置」中添加苹果 CMS 接口，或连接 Jellyfin 后再搜索家庭影院。"
-                fail != null && s.res.isEmpty() && s.jf.isEmpty() -> "搜索失败：$fail"
-                s.res.isEmpty() && s.jf.isEmpty() -> "没有找到“${s.q}”"
-                src == null -> "未配置点播源，以下为家庭影院结果"
-                else -> ""
-            }
-        } }
+            if (s.res.isEmpty() && s.jf.isEmpty()) s.msg = "没有找到“${s.q}”" else s.msg = "" } }
     Column(Modifier.fillMaxSize().padding(start = 96.p, end = 96.p, top = 150.p)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TvTextField(s.q, { s.q = it }, "搜索影片 / 剧集 / 演员", Modifier.width(900.p), onDone = { go() })
             Spacer(Modifier.width(20.p)); Btn("搜索") { go() }
-            Spacer(Modifier.width(20.p)); T(if (src != null) "当前源：${src.name}" else "未配置点播源", 20, alpha = .55f)
+            Spacer(Modifier.width(20.p)); T("当前源：${Cms.cur.name}", 20, alpha = .55f)
         }
-        if (src == null && s.msg == "输入片名、演员，按确认搜索") Empty("点播搜索需要先在设置中添加苹果 CMS 接口。已连接 Jellyfin 时仍可搜索家庭影院。")
-        if (s.msg.isNotBlank() && !(src == null && s.msg == "输入片名、演员，按确认搜索")) Empty(s.msg)
+        if (s.msg.isNotBlank()) Empty(s.msg)
         if (s.jf.isNotEmpty()) { T("家庭影院", 28, FontWeight.Bold, modifier = Modifier.padding(top = 20.p))
-            TvLazyRow(horizontalArrangement = Arrangement.spacedBy(30.p), contentPadding = PaddingValues(20.p)) { rowItemsIndexed(s.jf) { _, j ->
-                FocusCard(w = 236, h = 300, brush = grad(j.id), onClick = { openJf(j) }) { Poster(Jellyfin.img(j.id), j.id); CardTitle(j.name, j.year) } } } }
-        PosterGrid(s.res, Modifier.padding(top = 10.p)) { v -> src?.let { Nav.go(Scr.Detail("cms", v.id, it.api)) } }
+            TvLazyRow(horizontalArrangement = Arrangement.spacedBy(30.p), contentPadding = PaddingValues(20.p)) { rowItemsIndexed(s.jf, key = { _, j -> j.id }) { _, j ->
+                FocusCard(w = 236, h = 300, brush = grad(j.id), onClick = { openJf(j) }) { Poster(Jellyfin.img(j.id), j.id, wPx = 236, hPx = 300); CardTitle(j.name, j.year) } } } }
+        PosterGrid(s.res, Modifier.padding(top = 10.p)) { Nav.go(Scr.Detail("cms", it.id, Cms.cur.api)) }
     }
 }
 
@@ -202,7 +177,7 @@ fun DetailScreen(d: Scr.Detail) {
     val playFr = remember { FocusRequester() }
     LaunchedEffect(d) {
         try {
-            if (d.kind == "cms") { val src = Cms.sources.firstOrNull { it.api == d.api } ?: Cms.cur ?: error("尚未添加点播源，请先在设置中填写苹果 CMS 接口"); item = Cms.detail(d.id, src) ?: error("未找到该影片") }
+            if (d.kind == "cms") { val src = Cms.sources.firstOrNull { it.api == d.api } ?: Cms.cur; item = Cms.detail(d.id, src) ?: error("未找到该影片") }
             else {
                 val j = Jellyfin.info(d.id); streams = j.streams
                 val eps = if (j.type == "Series") Jellyfin.episodes(j.id).filter { it.type == "Episode" } else listOf(j)
@@ -212,14 +187,13 @@ fun DetailScreen(d: Scr.Detail) {
                     listOf(Line("NAS", eps.map { e -> Ep(if (j.type == "Series") "S${e.season}E${e.idx} ${e.name}" else "正片", Jellyfin.stream(e.id)) })))
                 if (j.pos > 0 && h == null) jfPos = listOf(j.pos)
             }
-            delay(100); runCatching { playFr.requestFocus() }
+            delay(100); playFr.safeFocus()
         } catch (e: Exception) { err = "加载失败：${e.message}" }
     }
     val v = item
     Box(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize().background(grad(d.id))) { if (v != null) Poster(v.pic, v.id) }
-        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0.3f to Color(0xEB08080E), 0.75f to Color.Transparent)))
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.55f to Color.Transparent, 0.95f to BG)))
+        Box(Modifier.fillMaxSize().background(grad(d.id))) { if (v != null) Poster(v.pic, v.id, wPx = 960, hPx = 540) }
+        Box(Modifier.fillMaxSize().background(Color(0xB308080E)))
         Clock(Modifier.align(Alignment.TopEnd).padding(top = 52.p, end = 80.p))
         if (v == null) { Empty(err.ifBlank { "加载中…" }, Modifier.align(Alignment.Center)); return@Box }
         fun play(l: Int, e: Int, start: Long) = Nav.go(Scr.Play(PlayReq(v.name, if (d.kind == "jf") Jellyfin.img(v.id) else v.pic, d.kind, ref, v.lines, l, e, start, jfIds = jfIds)))
