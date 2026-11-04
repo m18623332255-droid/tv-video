@@ -63,7 +63,7 @@ app/build/outputs/apk/debug/app-debug.apk
 
 推送到 GitHub 时，Actions 工作流 [`.github/workflows/build-debug.yml`](.github/workflows/build-debug.yml) 会执行 `assembleDebug`，并把 APK 作为 artifact 上传（名称 `tvvideo-debug`）。
 
-推送 `v*` 标签（例如 `v1.0.0`）时，[`.github/workflows/release.yml`](.github/workflows/release.yml) 会执行 `assembleRelease`，签名后创建 GitHub Release，并上传 `tvvideo-<标签>.apk`。签名密钥只在当次构建中生成，用来让安装包可以直接安装；长期升级请改用你自己的 keystore，不要把 keystore 提交到仓库。
+推送 `v*` 标签（例如 `v1.0.0`）时，[`.github/workflows/release.yml`](.github/workflows/release.yml) 会执行 `assembleRelease`，签名后创建 GitHub Release，并上传 `tvvideo-<标签>.apk`。签名使用仓库 Actions secrets：`KEYSTORE_BASE64`（`.jks` 的 base64）、`KEYSTORE_PASSWORD`（仓库密码和密钥密码相同）、`KEY_ALIAS`。这三个 secret 缺一则工作流会警告，并退回当次生成的临时密钥，那样之后的版本不能覆盖安装。不要把 keystore 提交到仓库。
 
 ## 安装
 

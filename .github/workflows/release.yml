@@ -33,6 +33,10 @@ jobs:
         run: chmod +x ./gradlew && ./gradlew assembleRelease --stacktrace --no-daemon
 
       - name: Sign release APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
           set -euo pipefail
           unsigned="$(find app/build/outputs/apk/release -type f -name '*.apk' | head -n 1)"
@@ -41,23 +45,41 @@ jobs:
             exit 1
           fi
           mkdir -p dist
-          keystore="${RUNNER_TEMP}/release.keystore"
-          storepass="$(openssl rand -base64 24)"
-          keytool -genkeypair -keystore "${keystore}" \
-            -storepass "${storepass}" -keypass "${storepass}" \
-            -alias tvvideo -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=HomeTV, OU=tv-video, O=tv-video, C=US"
           sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME}}"
           apksigner="${sdk_root}/build-tools/34.0.0/apksigner"
           out="dist/tvvideo-${GITHUB_REF_NAME}.apk"
+          keystore="${RUNNER_TEMP}/release.jks"
+          missing=()
+          [ -z "${KEYSTORE_BASE64}" ] && missing+=("KEYSTORE_BASE64")
+          [ -z "${KEYSTORE_PASSWORD}" ] && missing+=("KEYSTORE_PASSWORD")
+          [ -z "${KEY_ALIAS}" ] && missing+=("KEY_ALIAS")
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "Signing with the fixed repository keystore."
+            printf '%s' "${KEYSTORE_BASE64}" | tr -d '[:space:]' | base64 -d > "${keystore}"
+            KS_PASS="${KEYSTORE_PASSWORD}"
+            KEY_PASS="${KEYSTORE_PASSWORD}"
+            ALIAS="${KEY_ALIAS}"
+          else
+            echo "::warning::Release signing secrets absent: ${missing[*]}. Falling back to an ephemeral keystore. Later releases signed this way cannot upgrade in place."
+            KS_PASS="$(openssl rand -base64 24)"
+            KEY_PASS="${KS_PASS}"
+            ALIAS="tvvideo"
+            keytool -genkeypair -keystore "${keystore}" \
+              -storepass "${KS_PASS}" -keypass "${KEY_PASS}" \
+              -alias "${ALIAS}" -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=HomeTV, OU=tv-video, O=tv-video, C=US"
+          fi
+          keytool -list -keystore "${keystore}" -storepass "${KS_PASS}" -alias "${ALIAS}" >/dev/null
+          export KS_PASS KEY_PASS
           "${apksigner}" sign \
             --ks "${keystore}" \
-            --ks-pass "pass:${storepass}" \
-            --key-pass "pass:${storepass}" \
-            --ks-key-alias tvvideo \
+            --ks-pass env:KS_PASS \
+            --key-pass env:KEY_PASS \
+            --ks-key-alias "${ALIAS}" \
             --out "${out}" \
             "${unsigned}"
-          "${apksigner}" verify --verbose "${out}"
+          "${apksigner}" verify "${out}"
+          rm -f "${keystore}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
