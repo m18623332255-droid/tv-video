@@ -1,9 +1,10 @@
+@file:kotlin.OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.home.tvvideo
 
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
@@ -14,7 +15,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.zIndex
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -52,43 +52,38 @@ fun Modifier.glass(r: Int = 32) = this.clip(RoundedCornerShape(r.p)).background(
 
 fun Modifier.onKey(map: (Key) -> Boolean) = onPreviewKeyEvent { if (it.type == KeyEventType.KeyDown) map(it.key) else false }
 
-/** tvOS 风格聚焦卡片：放大 + 阴影 + 白描边 + 左上高光 */
+/** 聚焦卡片（低端机版）：固定倍数缩放（graphicsLayer，不改变布局、无动画）+ 白描边，无阴影/渐变高光 */
 @Composable
 fun FocusCard(
-    modifier: Modifier = Modifier, w: Int, h: Int, radius: Int = 22, scale: Float = 1.1f, brush: Brush = Grads[0],
-    focusRequester: FocusRequester? = null, onFocus: () -> Unit = {}, onClick: () -> Unit, content: @Composable BoxScope.(Boolean) -> Unit
+    modifier: Modifier = Modifier, w: Int, h: Int, radius: Int = 22, scale: Float = 1.06f, brush: Brush = Grads[0],
+    focusRequester: FocusRequester? = null, onFocus: () -> Unit = {}, onLongClick: (() -> Unit)? = null, onClick: () -> Unit, content: @Composable BoxScope.(Boolean) -> Unit
 ) {
     val src = remember { MutableInteractionSource() }
     val f by src.collectIsFocusedAsState()
-    LaunchedEffect(f) { if (f) onFocus() }
-    val s by animateFloatAsState(if (f) scale else 1f, label = "s")
+    val cb by rememberUpdatedState(onFocus)
+    LaunchedEffect(f) { if (f) cb() }
     val shape = RoundedCornerShape(radius.p)
     Box(
         modifier.size(w.p, h.p).zIndex(if (f) 5f else 0f)
-            .graphicsLayer { scaleX = s; scaleY = s }
-            .shadow(if (f) 30.dp else 6.dp, shape)
+            .graphicsLayer { val sc = if (f) scale else 1f; scaleX = sc; scaleY = sc }
             .clip(shape).background(brush)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-            .clickable(src, null, onClick = onClick)
-            .then(if (f) Modifier.border(2.dp, Color(0xD9FFFFFF), shape) else Modifier)
-    ) {
-        content(f)
-        if (!f) Box(Modifier.matchParentSize().background(Color(0x33000000)))
-        else Box(Modifier.matchParentSize().background(Brush.linearGradient(0f to Color(0x55FFFFFF), 0.5f to Color.Transparent)))
-    }
+            .then(if (onLongClick != null) Modifier.combinedClickable(interactionSource = src, indication = null, onLongClick = onLongClick, onClick = onClick) else Modifier.clickable(src, null, onClick = onClick))
+            .then(if (f) Modifier.border(3.dp, Color.White, shape) else Modifier)
+    ) { content(f) }
 }
 
-/** 胶囊按钮/标签：聚焦时白底黑字 */
+/** 胶囊按钮/标签：聚焦时白底黑字（无动画无阴影） */
 @Composable
 fun Pill(text: String, selected: Boolean = false, modifier: Modifier = Modifier, size: Int = 24, padH: Int = 30, padV: Int = 12, radius: Int = 30,
          focusRequester: FocusRequester? = null, onFocus: () -> Unit = {}, onClick: () -> Unit = {}) {
     val src = remember { MutableInteractionSource() }
     val f by src.collectIsFocusedAsState()
-    LaunchedEffect(f) { if (f) onFocus() }
-    val s by animateFloatAsState(if (f) 1.08f else 1f, label = "p")
+    val cb by rememberUpdatedState(onFocus)
+    LaunchedEffect(f) { if (f) cb() }
     val shape = RoundedCornerShape(radius.p)
     Box(
-        modifier.graphicsLayer { scaleX = s; scaleY = s }.then(if (f) Modifier.shadow(18.dp, shape) else Modifier).clip(shape)
+        modifier.clip(shape)
             .background(when { f -> Color(0xFFFFFFFF); selected -> Color(0x40FFFFFF); else -> Color.Transparent })
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .clickable(src, null, onClick = onClick).padding(horizontal = padH.p, vertical = padV.p)
@@ -99,15 +94,33 @@ fun Pill(text: String, selected: Boolean = false, modifier: Modifier = Modifier,
 fun Btn(text: String, modifier: Modifier = Modifier, play: Boolean = false, focusRequester: FocusRequester? = null, onClick: () -> Unit) {
     val src = remember { MutableInteractionSource() }
     val f by src.collectIsFocusedAsState()
-    val s by animateFloatAsState(if (f) 1.08f else 1f, label = "b")
     val shape = RoundedCornerShape(16.p)
     Row(
-        modifier.graphicsLayer { scaleX = s; scaleY = s }.then(if (f) Modifier.shadow(20.dp, shape) else Modifier).clip(shape)
+        modifier.clip(shape)
             .background(if (f) Color.White else Color(0x2EFFFFFF))
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .clickable(src, null, onClick = onClick).padding(horizontal = 40.p, vertical = 16.p), verticalAlignment = Alignment.CenterVertically
     ) { Text((if (play) "▶  " else "") + text, color = if (f) Color(0xFF111111) else Color.White, fontSize = 26.ps, fontWeight = FontWeight.SemiBold) }
 }
+
+/** 遥控器可操作的确认对话框，默认焦点在「取消」，返回键关闭 */
+@Composable
+fun ConfirmDialog(title: String, msg: String, okText: String = "确定", onOk: () -> Unit, onDismiss: () -> Unit) {
+    val fr = remember { FocusRequester() }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Column(Modifier.width(820.p).clip(RoundedCornerShape(28.p)).background(Color(0xFF22222C)).padding(44.p)) {
+            T(title, 36, FontWeight.Bold); T(msg, 24, alpha = .8f, lines = 3, modifier = Modifier.padding(top = 16.p, bottom = 32.p))
+            Row(horizontalArrangement = Arrangement.spacedBy(20.p)) {
+                Btn(okText) { onDismiss(); onOk() }
+                Btn("取消", focusRequester = fr) { onDismiss() }
+            }
+        }
+        LaunchedEffect(Unit) { kotlinx.coroutines.delay(50); fr.safeFocus() }
+    }
+}
+
+/** 安全请求焦点：节点未挂载时不崩溃 */
+fun FocusRequester.safeFocus(): Boolean = try { requestFocus(); true } catch (e: Throwable) { false }
 
 @Composable
 fun T(text: String, size: Int = 24, w: FontWeight = FontWeight.Normal, alpha: Float = 1f, color: Color = Color.White, lines: Int = 1, modifier: Modifier = Modifier) =
@@ -119,22 +132,30 @@ fun Tag(t: String) = Box(Modifier.padding(end = 12.p).border(2.p, Color(0xB3FFFF
 @Composable
 fun Clock(modifier: Modifier = Modifier) {
     var now by remember { mutableStateOf("") }
-    LaunchedEffect(Unit) { while (true) { now = SimpleDateFormat("HH:mm", Locale.CHINA).format(Date()); delay(10_000) } }
+    LaunchedEffect(Unit) { val f = SimpleDateFormat("HH:mm", Locale.CHINA); while (true) { now = f.format(Date()); delay(60_000 - System.currentTimeMillis() % 60_000 + 50) } }
     T(now, 28, FontWeight.SemiBold, modifier = modifier)
 }
 
 @Composable
-fun Poster(url: String?, seed: Any?, modifier: Modifier = Modifier) {
+fun Poster(url: String?, seed: Any?, modifier: Modifier = Modifier, wPx: Int = 300, hPx: Int = 400) {
     Box(modifier.fillMaxSize().background(grad(seed))) {
-        if (!url.isNullOrBlank()) AsyncImage(url, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        if (!url.isNullOrBlank()) {
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            val req = remember(url, wPx, hPx) {
+                coil.request.ImageRequest.Builder(ctx).data(url).size(wPx, hPx).crossfade(false)
+                    .bitmapConfig(android.graphics.Bitmap.Config.RGB_565).allowRgb565(true).build()
+            }
+            AsyncImage(req, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        }
     }
 }
 
 @Composable
 fun CardTitle(t: String, sub: String? = null) {
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color(0xAA000000)))))
-    Column(Modifier.fillMaxSize().padding(start = 20.p, end = 14.p, bottom = 18.p), verticalArrangement = Arrangement.Bottom) {
-        T(t, 26, FontWeight.Bold); if (sub != null) T(sub, 16, alpha = .7f)
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomStart) {
+        Column(Modifier.fillMaxWidth().background(Color(0x99000000)).padding(start = 20.p, end = 14.p, top = 8.p, bottom = 12.p)) {
+            T(t, 26, FontWeight.Bold); if (sub != null) T(sub, 16, alpha = .7f)
+        }
     }
 }
 @Composable

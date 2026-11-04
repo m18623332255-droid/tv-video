@@ -7,17 +7,12 @@ import java.io.File
 class ParsersTest {
     private fun asset(n: String) = File("src/main/assets/$n").readText()
 
+    /** 公开版 live.m3u 为空模板：能正常解析且不含任何频道地址 */
     @Test fun m3uBuiltin() {
         val p = Parsers.parseLive(asset("live.m3u"))
-        val groups = p.channels.groupBy { it.group }.mapValues { it.value.size }
-        println("channels=${p.channels.size} groups=$groups lines=${p.channels.sumOf { it.urls.size }}")
-        assertTrue(p.channels.size > 100)
-        assertTrue(groups.keys.containsAll(listOf("央视", "卫视")))
-        val cctv1 = p.channels.first { it.key == "CCTV1" }
-        assertTrue("CCTV1 多线路", cctv1.urls.size > 1)
-        val cetv = p.channels.first { it.key == "CETV1" }
-        assertTrue(cetv.urls.size >= 4); assertEquals("央视", cetv.group)
-        assertFalse(p.channels.any { it.name.startsWith("2026-") })
+        assertEquals(0, p.channels.size)
+        val s = Parsers.parseLive("#EXTM3U\n#EXTINF:-1 group-title=\"央视\",CCTV-1\nhttp://a/1\n#EXTINF:-1,CCTV1 高清\nhttp://b/1\n#EXTINF:-1,浙江卫视\nhttp://c/1")
+        assertEquals(2, s.channels.size); assertEquals(2, s.channels.first { it.key == "CCTV1" }.urls.size)
     }
     @Test fun normName() {
         assertEquals("CCTV1", Parsers.normName("CCTV-1 综合"))
@@ -38,21 +33,31 @@ class ParsersTest {
           "list":[{"vod_id":9,"vod_name":"测试剧","type_name":"国产剧","vod_play_from":"abc$$${'$'}lzm3u8","vod_play_url":"第1集${'$'}http://x/1.html#第2集${'$'}http://x/2.html$$${'$'}第1集${'$'}http://y/1.m3u8#第2集${'$'}http://y/2.m3u8","vod_content":"<p>简介</p>"},
                   {"vod_id":10,"vod_name":"x","type_name":"福利写真"}]}"""
         val p = Parsers.parseCms(json)
-        assertEquals(1, p.list.size); assertEquals(5, p.pageCount)
-        assertFalse(p.classes.any { it.name.contains("伦理") || it.name.contains("里番") })
+        assertEquals(5, p.pageCount)
+        assertTrue(p.classes.any { it.name.contains("伦理") })
         val v = p.list[0]; assertEquals("简介", v.content)
         assertEquals("lzm3u8", v.lines[0].name); assertEquals(2, v.lines[0].eps.size); assertEquals("http://y/2.m3u8", v.lines[0].eps[1].url)
         assertEquals(listOf("6"), Parsers.classesFor("电影", p.classes).filter { it.pid != "0" }.map { it.id })
         assertEquals("电视剧", Parsers.topOf("国产剧")); assertEquals("动漫", Parsers.topOf("日韩动漫")); assertEquals("纪录片", Parsers.topOf("记录片")); assertEquals("电影", Parsers.topOf("喜剧片")); assertEquals("少儿", Parsers.topOf("动画片"))
-        assertNull(Parsers.topOf("伦理片")); assertNull(Parsers.topOf("预告片"))
+        assertEquals("电影", Parsers.topOf("伦理片")); assertEquals("其他", Parsers.topOf("预告片")); assertEquals("其他", Parsers.topOf("福利"))
     }
-    @Test fun adult() { listOf("伦理片", "里番", "福利", "写真", "AV", "国产AV").forEach { assertTrue(it, Parsers.isAdult(it)) }
-        listOf("动作片", "CCTV-1", "Anhui TV", "Travel Channel").forEach { assertFalse(it, Parsers.isAdult(it)) } }
+    /** 不做任何内容过滤：分类、影片、直播频道全部原样保留 */
+    @Test fun adult() {
+        val p = Parsers.parseCms("""{"class":[{"type_id":"1","type_name":"福利"},{"type_id":"2","type_name":"写真"}],"list":[{"vod_id":"9","vod_name":"x","type_name":"伦理片","vod_play_from":"a","vod_play_url":"1${'$'}http://a/1.m3u8"}]}""")
+        assertEquals(2, p.classes.size); assertEquals(1, p.list.size)
+        assertEquals(1, Parsers.merge(listOf(Channel("成人频道", "", mutableListOf("http://a")))).size)
+        listOf("福利", "写真", "AV").forEach { assertNotNull(it, Parsers.topOf(it)) }
+    }
 
-    @Test fun cmsCustomList() {
-        val parsed = Cms.parseCustom("家里\n自建|https://example.com/api.php/provide/vod/\n坏的|not-a-url\n|https://example.com/x\n自建|https://example.com/api.php/provide/vod/")
-        assertEquals(1, parsed.size)
-        assertEquals("自建", parsed[0].name)
-        assertEquals("https://example.com/api.php/provide/vod/", parsed[0].api)
+    /** 真实接口：设置环境变量 CMS_TEST_API 后运行 */
+    @Test fun cmsLive() {
+        val api = System.getenv("CMS_TEST_API") ?: run { println("skip: 未设置 CMS_TEST_API"); return }
+        val txt = try { java.net.URL("$api?ac=list").readText() } catch (e: Exception) { println("skip net: $e"); return }
+        val p = Parsers.parseCms(txt)
+        println("classes=" + Parsers.TOP.associateWith { t -> Parsers.classesFor(t, p.classes).map { it.name } })
+        assertTrue(p.classes.isNotEmpty()); assertTrue(p.classes.isNotEmpty())
+        val d = Parsers.parseCms(java.net.URL("$api?ac=detail&pg=1").readText())
+        println("detail first=${d.list.firstOrNull()?.name} lines=${d.list.firstOrNull()?.lines?.map { it.name + ":" + it.eps.size }}")
+        assertTrue(d.list.isNotEmpty() && d.list[0].lines.isNotEmpty())
     }
 }

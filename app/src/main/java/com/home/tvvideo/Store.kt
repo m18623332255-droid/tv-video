@@ -53,6 +53,11 @@ object Store {
         history.value = (listOf(h) + history.value.filter { it.key != h.key }).take(60)
         set("history", JSONArray().apply { history.value.forEach { put(it.json()) } }.toString())
     }
+    fun clearHistory() { history.value = emptyList(); set("history", "[]") }
+    fun removeHistory(key: String) {
+        history.value = history.value.filter { it.key != key }
+        set("history", JSONArray().apply { history.value.forEach { put(it.json()) } }.toString())
+    }
     fun findHistory(key: String) = history.value.firstOrNull { it.key == key }
 
     var liveUrls: List<String>

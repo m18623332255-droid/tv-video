@@ -38,7 +38,6 @@ fun LibraryTab() {
             "WebDAV", "SMB" -> loadFiles()
         }
     }
-    Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color(0xFF2A2350), Color.Transparent), center = androidx.compose.ui.geometry.Offset(380f, 0f), radius = 1400f)))
     if (tabs.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(top = 110.p, end = 80.p), horizontalArrangement = Arrangement.End) {
         Row(Modifier.glass(24).padding(horizontal = 22.p, vertical = 12.p), verticalAlignment = Alignment.CenterVertically) {
             Dot(Color(0xFF34C759)); Spacer(Modifier.width(10.p))
@@ -70,13 +69,13 @@ fun LibraryTab() {
                     itemsIndexed(l, key = { _, j -> j.id }) { i, j -> FocusCard(w = 236, h = 330, brush = grad(j.id), onFocus = {
                         if (i == l.size - 6 && l.size % 60 == 0) scope.launch { runCatching { l.addAll(Jellyfin.library(if (cur == "电影") "Movie" else "Series", l.size)) } } },
                         onClick = { Nav.go(Scr.Detail("jf", j.id)) }) {
-                        Poster(Jellyfin.img(j.id), j.id); CardTitle(j.name, j.year); if (j.pos > 0 && j.runtime > 0) ProgressBar(j.pos.toFloat() / j.runtime) } }
+                        Poster(Jellyfin.img(j.id), j.id, wPx = 236, hPx = 330); CardTitle(j.name, j.year); if (j.pos > 0 && j.runtime > 0) ProgressBar(j.pos.toFloat() / j.runtime) } }
                 } }
             else -> {
                 val up = if (cur == "WebDAV") s.davPath != null && s.davPath != "/" else s.smbPath.isNotEmpty()
                 val entries = (if (up) listOf(FileEntry("..", "", true)) else emptyList()) + s.files
                 TvLazyVerticalGrid(TvGridCells.Fixed(5), Modifier.padding(top = 10.p), horizontalArrangement = Arrangement.spacedBy(36.p), verticalArrangement = Arrangement.spacedBy(36.p), contentPadding = PaddingValues(vertical = 30.p, horizontal = 16.p)) {
-                    itemsIndexed(entries) { _, f -> FocusCard(w = 300, h = 170, brush = if (f.dir) Grads[7] else grad(f.name), onClick = {
+                    itemsIndexed(entries, key = { _, f -> f.path + "|" + f.name }) { _, f -> FocusCard(w = 300, h = 170, brush = if (f.dir) Grads[7] else grad(f.name), onClick = {
                         if (f.name == "..") { if (cur == "WebDAV") s.davPath = s.davPath!!.trimEnd('/').substringBeforeLast('/').ifEmpty { "/" } + "/" else s.smbPath = s.smbPath.substringBeforeLast('\\', ""); loadFiles() }
                         else if (f.dir) { if (cur == "WebDAV") s.davPath = f.path.trimEnd('/') + "/" else s.smbPath = f.path; loadFiles() }
                         else {

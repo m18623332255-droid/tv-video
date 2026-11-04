@@ -1,8 +1,8 @@
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 android {
   namespace = "com.home.tvvideo"; compileSdk = 34
-  defaultConfig { applicationId = "com.home.tvvideo"; minSdk = 21; targetSdk = 34; versionCode = 1; versionName = "1.0.0"; multiDexEnabled = true }
-  buildFeatures { compose = true }
+  defaultConfig { applicationId = "com.home.tvvideo"; minSdk = 21; targetSdk = 34; versionCode = 4; versionName = "1.2.1"; multiDexEnabled = true }
+  buildFeatures { compose = true; buildConfig = true }
   composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }
   compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17; isCoreLibraryDesugaringEnabled = true }
   kotlinOptions { jvmTarget = "17" }

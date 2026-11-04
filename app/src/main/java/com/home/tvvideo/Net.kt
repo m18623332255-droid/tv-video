@@ -55,15 +55,14 @@ object LiveRepo {
 
 data class Prog(val start: String, val end: String, val title: String)
 object Epg {
-    private val cache = HashMap<String, List<Prog>>()
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, List<Prog>>()
     /** DIYP 格式接口：{ch} {date}；取不到返回空列表（界面隐藏） */
-    suspend fun get(ch: String): List<Prog> {
+    suspend fun get(ch: String): List<Prog> = withContext(Dispatchers.IO) { getImpl(ch) }
+    private suspend fun getImpl(ch: String): List<Prog> {
         val date = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date())
         val name = Parsers.normName(ch).replace("CCTV", "CCTV")
         cache[name]?.let { return it }
-        val tpls = (Store.get("epgUrl").split("\n") + listOf(
-            "https://epg.erw.cc/api/diyp/?ch={ch}&date={date}", "https://e.erw.cc/api/diyp/?ch={ch}&date={date}",
-            "http://epg.51zmt.top:8000/api/diyp/?ch={ch}&date={date}")).filter { it.contains("{ch}") }.distinct()
+        val tpls = (Store.get("epgUrl").split("\n") + listOf<String>()).filter { it.contains("{ch}") }.distinct()
         for (t in tpls) {
             val r = runCatching {
                 val o = JSONObject(getText(t.replace("{ch}", enc(name)).replace("{date}", date)))
@@ -80,37 +79,22 @@ object Epg {
 data class CmsSource(val name: String, val api: String)
 object Cms {
     var sources: List<CmsSource> = emptyList()
-    val classCache = HashMap<String, List<CmsClass>>()
-    /** 是否已由用户添加至少一个点播接口。应用不内置任何第三方资源站。 */
-    val configured get() = sources.isNotEmpty()
-    /** 当前选中的点播源；未添加任何接口时为 null。 */
-    val cur: CmsSource? get() = sources.firstOrNull { it.api == Store.get("cmsApi") } ?: sources.firstOrNull()
-
-    /** 只读取用户在设置里保存的接口，不加载任何内置地址。 */
-    fun load(@Suppress("UNUSED_PARAMETER") ctx: Context) {
-        sources = parseCustom(Store.get("cmsCustom"))
+    val classCache = java.util.concurrent.ConcurrentHashMap<String, List<CmsClass>>()
+    fun load(ctx: Context) {
+        if (sources.isNotEmpty()) return
+        val o = JSONObject(ctx.assets.open("vod.json").bufferedReader().readText())
+        val a = o.getJSONArray("cms_apis")
+        sources = (0 until a.length()).map { a.getJSONObject(it) }.filter { it.optBoolean("ok") }.map { CmsSource(it.getString("name"), it.getString("api")) }
+        val custom = Store.get("cmsCustom").split("\n").mapNotNull { l -> l.split("|").takeIf { it.size == 2 }?.let { CmsSource(it[0], it[1]) } }
+        sources = custom + sources
     }
-
-    fun parseCustom(raw: String): List<CmsSource> = raw.lineSequence().mapNotNull { line ->
-        val i = line.indexOf('|')
-        if (i <= 0) return@mapNotNull null
-        val name = line.substring(0, i).trim()
-        val api = line.substring(i + 1).trim()
-        if (name.isEmpty() || !api.startsWith("http")) null else CmsSource(name, api)
-    }.distinctBy { it.api }.toList()
-
-    fun replace(list: List<CmsSource>) {
-        sources = list.distinctBy { it.api }
-        Store.set("cmsCustom", sources.joinToString("\n") { "${it.name}|${it.api}" })
-        if (sources.none { it.api == Store.get("cmsApi") }) Store.set("cmsApi", sources.firstOrNull()?.api.orEmpty())
-        classCache.clear()
-    }
-
+    val cur: CmsSource get() = sources.firstOrNull { it.api == Store.get("cmsApi") } ?: sources.firstOrNull() ?: CmsSource("未配置点播源", "")
     private fun u(api: String, q: String) = api + (if (api.contains("?")) "&" else "?") + q
-    suspend fun classes(src: CmsSource): List<CmsClass> = classCache[src.api] ?: Parsers.parseCms(getText(u(src.api, "ac=list"))).classes.also { classCache[src.api] = it }
-    suspend fun list(t: String?, pg: Int, src: CmsSource): CmsPage = Parsers.parseCms(getText(u(src.api, "ac=detail&pg=$pg" + (t?.let { "&t=$it" } ?: ""))))
-    suspend fun search(wd: String, pg: Int = 1, src: CmsSource) = Parsers.parseCms(getText(u(src.api, "ac=detail&wd=${enc(wd)}&pg=$pg")))
-    suspend fun detail(id: String, src: CmsSource) = Parsers.parseCms(getText(u(src.api, "ac=detail&ids=$id"))).list.firstOrNull()
+    private suspend fun fetch(url: String): CmsPage = withContext(Dispatchers.IO) { if (url.startsWith("?") || url.startsWith("&")) error("未配置点播源，请在设置中添加"); Parsers.parseCms(getText(url)) } // 网络+JSON 解析都在后台线程
+    suspend fun classes(src: CmsSource = cur): List<CmsClass> = classCache[src.api] ?: fetch(u(src.api, "ac=list")).classes.also { classCache[src.api] = it }
+    suspend fun list(t: String?, pg: Int, src: CmsSource = cur): CmsPage = fetch(u(src.api, "ac=detail&pg=$pg" + (t?.let { "&t=$it" } ?: "")))
+    suspend fun search(wd: String, pg: Int = 1, src: CmsSource = cur) = fetch(u(src.api, "ac=detail&wd=${enc(wd)}&pg=$pg"))
+    suspend fun detail(id: String, src: CmsSource = cur) = fetch(u(src.api, "ac=detail&ids=$id")).list.firstOrNull()
 }
 
 // ---------------- Jellyfin ----------------
@@ -136,7 +120,8 @@ object Jellyfin {
         o.optJSONArray("Genres")?.let { g -> (0 until g.length()).joinToString(" / ") { g.getString(it) } } ?: "",
         o.optJSONArray("People")?.let { p -> (0 until minOf(8, p.length())).map { p.getJSONObject(it) }.map { it.optString("Name") to it.optString("Role") } } ?: emptyList(),
         o.optJSONArray("MediaStreams")?.let { m -> (0 until m.length()).map { m.getJSONObject(it) }.filter { it.optString("Type") != "Video" }.map { it.optString("DisplayTitle") } } ?: emptyList())
-    private suspend fun items(path: String): List<JfItem> {
+    private suspend fun items(path: String): List<JfItem> = withContext(Dispatchers.IO) { itemsImpl(path) }
+    private suspend fun itemsImpl(path: String): List<JfItem> {
         val t = getText("$base$path", hdr())
         val a = if (t.trimStart().startsWith("[")) JSONArray(t) else JSONObject(t).optJSONArray("Items") ?: JSONArray()
         return (0 until a.length()).map { item(a.getJSONObject(it)) }
@@ -146,7 +131,7 @@ object Jellyfin {
     suspend fun resume() = items("/Users/$uid/Items/Resume?Limit=12&MediaTypes=Video")
     suspend fun latest() = items("/Users/$uid/Items/Latest?Limit=16")
     suspend fun episodes(seriesId: String) = items("/Shows/$seriesId/Episodes?UserId=$uid&Fields=Overview")
-    suspend fun info(id: String) = item(JSONObject(getText("$base/Users/$uid/Items/$id", hdr())))
+    suspend fun info(id: String) = withContext(Dispatchers.IO) { item(JSONObject(getText("$base/Users/$uid/Items/$id", hdr()))) }
     fun img(id: String, type: String = "Primary", w: Int = 400) = "$base/Items/$id/Images/$type?maxWidth=$w&api_key=$token"
     fun stream(id: String) = "$base/Videos/$id/stream?static=true&api_key=$token"
     suspend fun reportStop(id: String, posMs: Long) = runCatching { withContext(Dispatchers.IO) {

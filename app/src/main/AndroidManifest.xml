@@ -4,7 +4,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
-    <application android:label="家庭影视" android:icon="@mipmap/ic_launcher" android:banner="@drawable/banner"
+    <application android:name=".App" android:label="家庭影视" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:banner="@drawable/banner"
         android:usesCleartextTraffic="true" android:theme="@style/AppTheme" android:largeHeap="true" android:supportsRtl="true">
         <activity android:name=".MainActivity" android:exported="true" android:screenOrientation="landscape"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode">
@@ -14,5 +14,6 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+        <provider android:name=".ContinueProvider" android:authorities="com.home.tvvideo.continue" android:exported="true" />
     </application>
 </manifest>

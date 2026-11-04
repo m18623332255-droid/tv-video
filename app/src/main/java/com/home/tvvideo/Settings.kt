@@ -22,35 +22,14 @@ fun SettingsTab() {
         if (msg.isNotBlank()) T(msg, 24, color = androidx.compose.ui.graphics.Color(0xFF34C759), modifier = Modifier.padding(top = 10.p), lines = 3)
 
         Section("点播源（苹果 CMS）") {
-            var cur by remember { mutableStateOf(Cms.cur?.api.orEmpty()) }
-            T("不内置任何点播接口。请添加你自己的苹果 CMS JSON 接口（通常以 api.php/provide/vod/ 结尾），并且只使用你有权访问的地址。", 22, alpha = .7f, lines = 3)
-            if (Cms.sources.isEmpty()) {
-                T("当前没有点播源。添加后，「点播」和首页推荐才会显示在线影片。", 22, alpha = .9f)
-            } else {
-                TvLazyRow(horizontalArrangement = Arrangement.spacedBy(10.p), contentPadding = PaddingValues(8.p)) {
-                    items(Cms.sources) { s -> Pill(s.name, s.api == cur, size = 22, padH = 20, padV = 8, radius = 14) {
-                        Store.set("cmsApi", s.api); cur = s.api; clearVod(); msg = "已切换点播源：${s.name}"
-                    } }
-                }
-                Cms.sources.forEach { s ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        T("${s.name}    ${s.api}", 20, modifier = Modifier.width(1100.p), lines = 2)
-                        Pill("删除", size = 20, padH = 16, padV = 6) {
-                            Cms.replace(Cms.sources.filter { it.api != s.api }); cur = Cms.cur?.api.orEmpty(); clearVod(); msg = "已删除点播源「${s.name}」"
-                        }
-                    }
-                }
+            var cur by remember { mutableStateOf(Cms.cur.api) }
+            TvLazyRow(horizontalArrangement = Arrangement.spacedBy(10.p), contentPadding = PaddingValues(8.p)) {
+                items(Cms.sources) { s -> Pill(s.name, s.api == cur, size = 22, padH = 20, padV = 8, radius = 14) { Store.set("cmsApi", s.api); cur = s.api; VodState.classes = emptyList(); VodState.items.clear(); HomeData.latest = emptyList(); msg = "已切换点播源：${s.name}" } }
             }
             var name by remember { mutableStateOf("") }; var api by remember { mutableStateOf("") }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.p)) {
-                TvTextField(name, { name = it }, "名称", Modifier.width(260.p)); TvTextField(api, { api = it }, "https://example.com/api.php/provide/vod/", Modifier.width(900.p))
-                Btn("添加") {
-                    val u = api.trim()
-                    if (u.startsWith("http")) {
-                        Cms.replace(Cms.sources + CmsSource(name.trim().ifBlank { "自定义" }, u))
-                        cur = Cms.cur?.api.orEmpty(); clearVod(); name = ""; api = ""; msg = "已添加点播源，打开「点播」即可浏览"
-                    } else msg = "接口地址需要以 http:// 或 https:// 开头"
-                }
+                TvTextField(name, { name = it }, "名称", Modifier.width(260.p)); TvTextField(api, { api = it }, "自定义接口 https://xxx/api.php/provide/vod/", Modifier.width(900.p))
+                Btn("添加") { if (api.startsWith("http")) { Store.set("cmsCustom", (Store.get("cmsCustom") + "\n${name.ifBlank { "自定义" }}|$api").trim()); Cms.sources = emptyList(); Cms.load(ctx); msg = "已添加点播源" } }
             }
         }
         Section("直播源") {
@@ -64,7 +43,7 @@ fun SettingsTab() {
             }
             var epg by remember { mutableStateOf(Store.get("epgUrl")) }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.p), modifier = Modifier.padding(top = 10.p)) {
-                TvTextField(epg, { epg = it }, "自定义 EPG（DIYP 接口，如 https://epg.112114.xyz/?ch={ch}&date={date}）", Modifier.width(1000.p))
+                TvTextField(epg, { epg = it }, "自定义 EPG（DIYP 接口，如 https://你的EPG地址/?ch={ch}&date={date}）", Modifier.width(1000.p))
                 Btn("保存") { Store.set("epgUrl", epg.trim()); msg = "已保存 EPG 接口" }
             }
         }
@@ -95,23 +74,14 @@ fun SettingsTab() {
         }
         Section("其他") {
             Row(horizontalArrangement = Arrangement.spacedBy(16.p)) {
-                Btn("清空播放记录") { Store.history.value = emptyList(); Store.set("history", "[]"); msg = "已清空播放记录" }
+                var askClear by remember { mutableStateOf(false) }
+                Btn("清除历史记录") { askClear = true }
+                if (askClear) ConfirmDialog("清除历史记录", "将删除全部 ${Store.history.value.size} 条播放记录，无法恢复。", "清除", onOk = { Store.clearHistory(); msg = "已清除历史记录" }, onDismiss = { askClear = false })
                 Btn("清空收藏") { Store.favs.value = emptySet(); Store.set("favs", ""); msg = "已清空收藏" }
             }
-            T("家庭影视 TV 1.0 · 本软件只是播放器，不内置、不提供任何影视内容。点播接口与家庭媒体库由你自行添加，请确保来源合法。", 20, alpha = .5f, modifier = Modifier.padding(top = 16.p), lines = 2)
+            T("家庭影视 TV ${BuildConfig.VERSION_NAME} · 点播内容来自第三方资源接口，已过滤成人分类，仅供家庭学习交流", 20, alpha = .5f, modifier = Modifier.padding(top = 16.p), lines = 2)
         }
     }
-}
-
-private fun clearVod() {
-    VodState.classes = emptyList()
-    VodState.items.clear()
-    VodState.page = 0
-    VodState.pageCount = 1
-    VodState.srcApi = ""
-    VodState.error = ""
-    HomeData.latest = emptyList()
-    HomeData.hero = null
 }
 
 @Composable
